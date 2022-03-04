@@ -20,9 +20,13 @@ import locale
 import logging
 import signal
 import sys
+import time
 
 from aiy.assistant.grpc import AssistantServiceClientWithLed
+from aiy.assistant import auth_helpers, device_helpers, device_handler_helpers
 from aiy.board import Board
+
+logger = logging.getLogger(__name__)
 
 def volume(string):
     value = int(string)
@@ -40,13 +44,40 @@ def main():
 
     parser = argparse.ArgumentParser(description='Assistant service example.')
     parser.add_argument('--language', default=locale_language())
-    parser.add_argument('--volume', type=volume, default=100)
+    parser.add_argument('--volume', type=volume, default=10)
     args = parser.parse_args()
+
+    credentials = auth_helpers.get_assistant_credentials()
+    device_model_id, device_id = device_helpers.get_ids_for_service(credentials)
+
+    logger.info('device_model_id: %s', device_model_id)
+    logger.info('device_id: %s', device_id)
+
+    device_handler = device_handler_helpers.DeviceRequestHandler(device_id)
+    
+    @device_handler.command('com.example.commands.BlinkLight')
+    def blink(speed, number):
+        logging.info('Blinking device %s times.' % number)
+        delay = 1
+        if speed == "SLOWLY":
+            delay = 2
+        elif speed == "QUICKLY":
+            delay = 0.5
+        for i in range(int(number)):
+            logging.info('Device is blinking.')
+            # GPIO.output(25, 1)
+            time.sleep(delay)
+            # GPIO.output(25, 0)
+            time.sleep(1)    
 
     with Board() as board:
         assistant = AssistantServiceClientWithLed(board=board,
                                                   volume_percentage=args.volume,
-                                                  language_code=args.language)
+                                                  language_code=args.language,
+                                                  credentials=credentials,
+                                                  device_model_id=device_model_id,
+                                                  device_id=device_id,
+                                                  device_handler=device_handler)
         while True:
             logging.info('Press button to start conversation...')
             board.button.wait_for_press()

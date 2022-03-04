@@ -35,9 +35,11 @@ to convert your voice commands into text that triggers your actions.
 
 import array
 import logging
+import json
 import math
 import os
 import sys
+import concurrent.futures
 
 os.environ['GRPC_POLL_STRATEGY'] = 'epoll1'
 import google.auth.transport.grpc
@@ -85,17 +87,13 @@ class AssistantServiceClient:
         volume_percentage: Volume level of the audio output. Valid values are 1 to 100
             (corresponding to 1% to 100%).
     """
-    def __init__(self, language_code='en-US', volume_percentage=100):
+    def __init__(self, credentials, device_model_id, device_id, device_handler,
+                 language_code='en-US', volume_percentage=100):
+        
         self._volume_percentage = volume_percentage  # Mutable state.
         self._conversation_state = None              # Mutable state.
         self._language_code = language_code
-
-        ##
-        credentials = auth_helpers.get_assistant_credentials()
-        device_model_id, device_id = device_helpers.get_ids_for_service(credentials)
-
-        logger.info('device_model_id: %s', device_model_id)
-        logger.info('device_id: %s', device_id)
+        self.device_handler = device_handler
 
         http_request = google.auth.transport.requests.Request()
         try:
@@ -164,6 +162,7 @@ class AssistantServiceClient:
 
     def _assist(self, recorder, play, deadline):
         continue_conversation = False
+        device_actions_futures = []
 
         for response in self._assistant.Assist(self._requests(recorder), deadline):
             if response.event_type == END_OF_UTTERANCE:
@@ -185,7 +184,17 @@ class AssistantServiceClient:
                 conversation_state = response.dialog_state_out.conversation_state
                 logger.debug('Updating conversation state.')
                 self._conversation_state = conversation_state  # Mutable state change.
-
+                
+            # Process 'device request'
+            if response.device_action.device_request_json:
+                print('>>>>>>>>>>>>>>>>>>>>>>>Device request.')
+                device_request = json.loads(
+                    response.device_action.device_request_json
+                )
+                fs = self.device_handler(device_request)
+                if fs:
+                    device_actions_futures.extend(fs)
+                    
             volume_percentage = response.dialog_state_out.volume_percentage
             if volume_percentage:
                 logger.info('Setting volume to %s%%', volume_percentage)
@@ -202,6 +211,10 @@ class AssistantServiceClient:
             elif microphone_mode == CLOSE_MICROPHONE:
                 continue_conversation = False
                 logger.info('Not expecting follow-on query from user.')
+
+        if len(device_actions_futures):
+            logging.info('Waiting for device executions to complete.')
+            concurrent.futures.wait(device_actions_futures)
 
         return continue_conversation
 
@@ -254,8 +267,11 @@ class AssistantServiceClientWithLed(AssistantServiceClient):
         self._board.led.state = state
         self._board.led.brightness = brightness
 
-    def __init__(self, board, language_code='en-US', volume_percentage=100):
-        super().__init__(language_code, volume_percentage)
+    def __init__(self, board, credentials, device_model_id, device_id, device_handler,
+                 language_code='en-US', volume_percentage=100):
+        
+        super().__init__(credentials, device_model_id, device_id, device_handler,
+                         language_code, volume_percentage)
 
         self._board = board
         self._update_led(Led.ON, 0.1)
