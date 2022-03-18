@@ -61,7 +61,6 @@ def _save_ids(id_path, model_id, device_id):
     with open(id_path, 'w') as f:
         json.dump(id_data, f)
 
-
 def register_model_id(credentials, model_id=None):
     """Register a Model ID for use with the Google Assistant SDK.
 

@@ -187,7 +187,6 @@ class AssistantServiceClient:
                 
             # Process 'device request'
             if response.device_action.device_request_json:
-                print('>>>>>>>>>>>>>>>>>>>>>>>Device request.')
                 device_request = json.loads(
                     response.device_action.device_request_json
                 )

@@ -25,6 +25,7 @@ import time
 from aiy.assistant.grpc import AssistantServiceClientWithLed
 from aiy.assistant import auth_helpers, device_helpers, device_handler_helpers
 from aiy.board import Board
+from aiy.leds import Leds, Color
 
 logger = logging.getLogger(__name__)
 
@@ -44,31 +45,38 @@ def main():
 
     parser = argparse.ArgumentParser(description='Assistant service example.')
     parser.add_argument('--language', default=locale_language())
-    parser.add_argument('--volume', type=volume, default=10)
+    parser.add_argument('--volume', type=volume, default=50)
     args = parser.parse_args()
 
     credentials = auth_helpers.get_assistant_credentials()
     device_model_id, device_id = device_helpers.get_ids_for_service(credentials)
+    device_handler = device_handler_helpers.DeviceRequestHandler(device_id)
 
     logger.info('device_model_id: %s', device_model_id)
     logger.info('device_id: %s', device_id)
 
-    device_handler = device_handler_helpers.DeviceRequestHandler(device_id)
     
+    #------------------------------------------------------------------------------
+    # Add custom device handlers here
+    #------------------------------------------------------------------------------
+
     @device_handler.command('com.example.commands.BlinkLight')
     def blink(speed, number):
         logging.info('Blinking device %s times.' % number)
-        delay = 1
+        delay = 0.5
         if speed == "SLOWLY":
-            delay = 2
+            delay = 1
         elif speed == "QUICKLY":
-            delay = 0.5
-        for i in range(int(number)):
-            logging.info('Device is blinking.')
-            # GPIO.output(25, 1)
-            time.sleep(delay)
-            # GPIO.output(25, 0)
-            time.sleep(1)    
+            delay = 0.2
+        with Leds() as leds:
+            for i in range(int(number)):
+                logging.info('Device is blinking.')
+                leds.update(Leds.rgb_on(Color.BLUE))
+                time.sleep(delay)
+                leds.update(Leds.rgb_off())
+                time.sleep(delay)
+
+    #------------------------------------------------------------------------------
 
     with Board() as board:
         assistant = AssistantServiceClientWithLed(board=board,
@@ -85,4 +93,7 @@ def main():
             assistant.conversation()
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("Bye")
